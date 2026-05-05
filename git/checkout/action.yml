@@ -30,6 +30,89 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Capture existing submodule paths
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = "Stop"
+
+        $baselinePath = Join-Path $env:RUNNER_TEMP "checkout-existing-submodules-$env:GITHUB_RUN_ID.txt"
+        $paths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+        $pathComparison = [System.StringComparison]::Ordinal
+        if ($IsWindows) {
+          $pathComparison = [System.StringComparison]::OrdinalIgnoreCase
+        }
+
+        function Add-SubmodulePathsFromLines {
+          param([string[]] $Lines)
+
+          foreach ($line in $Lines) {
+            if ([string]::IsNullOrWhiteSpace($line)) {
+              continue
+            }
+
+            $parts = $line -split "\s+", 2
+            if ($parts.Count -eq 2 -and -not [string]::IsNullOrWhiteSpace($parts[1])) {
+              [void] $paths.Add($parts[1])
+            }
+          }
+        }
+
+        function Add-SubmodulePathFromWorktree {
+          param(
+            [string] $ModuleGitDir,
+            [string] $Worktree
+          )
+
+          if ([string]::IsNullOrWhiteSpace($Worktree)) {
+            return
+          }
+
+          $workspace = [System.IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)
+          if (-not $workspace.EndsWith([System.IO.Path]::DirectorySeparatorChar)) {
+            $workspace = "$workspace$([System.IO.Path]::DirectorySeparatorChar)"
+          }
+
+          $fullPath = [System.IO.Path]::GetFullPath((Join-Path $ModuleGitDir $Worktree))
+          if (-not $fullPath.StartsWith($workspace, $pathComparison)) {
+            return
+          }
+
+          $relativePath = [System.IO.Path]::GetRelativePath($workspace, $fullPath).Replace("\", "/")
+          if (-not [string]::IsNullOrWhiteSpace($relativePath)) {
+            [void] $paths.Add($relativePath)
+          }
+        }
+
+        if (Test-Path ".gitmodules") {
+          $gitmodulesLines = & git config --file .gitmodules --get-regexp "submodule\..*\.path" 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            Add-SubmodulePathsFromLines $gitmodulesLines
+          }
+        }
+
+        if (Test-Path ".git") {
+          $localConfigLines = & git config --local --get-regexp "submodule\..*\.path" 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            Add-SubmodulePathsFromLines $localConfigLines
+          }
+
+          $gitDir = & git rev-parse --git-dir 2>$null
+          if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($gitDir)) {
+            $modulesRoot = Join-Path $gitDir "modules"
+            if (Test-Path $modulesRoot) {
+              foreach ($config in Get-ChildItem -Path $modulesRoot -Filter config -Recurse -File) {
+                $worktree = & git config --file $config.FullName --get core.worktree 2>$null
+                if ($LASTEXITCODE -eq 0) {
+                  Add-SubmodulePathFromWorktree (Split-Path -Parent $config.FullName) $worktree
+                }
+              }
+            }
+          }
+        }
+
+        $sortedPaths = @($paths | Sort-Object)
+        Set-Content -Path $baselinePath -Value $sortedPaths -Encoding utf8
+
     - name: Read LFS config
       if: ${{ inputs.lfs == 'true' }}
       id: read-lfs-config
@@ -79,6 +162,72 @@ runs:
         persist-credentials: ${{ inputs.persist-credentials }}
         submodules: ${{ inputs.submodules }}
         token: ${{ inputs.github-token || github.token }}
+
+    - name: Remove stale submodule worktrees
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = "Stop"
+
+        $baselinePath = Join-Path $env:RUNNER_TEMP "checkout-existing-submodules-$env:GITHUB_RUN_ID.txt"
+        if (-not (Test-Path $baselinePath)) {
+          return
+        }
+
+        $pathComparison = [System.StringComparison]::Ordinal
+        if ($IsWindows) {
+          $pathComparison = [System.StringComparison]::OrdinalIgnoreCase
+        }
+
+        $workspace = [System.IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)
+        if (-not $workspace.EndsWith([System.IO.Path]::DirectorySeparatorChar)) {
+          $workspace = "$workspace$([System.IO.Path]::DirectorySeparatorChar)"
+        }
+
+        $oldPaths = @(Get-Content -Path $baselinePath | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        if ($oldPaths.Count -eq 0) {
+          return
+        }
+
+        $currentPaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+        if (Test-Path ".gitmodules") {
+          $currentLines = & git config --file .gitmodules --get-regexp "submodule\..*\.path" 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            foreach ($line in $currentLines) {
+              $parts = $line -split "\s+", 2
+              if ($parts.Count -eq 2 -and -not [string]::IsNullOrWhiteSpace($parts[1])) {
+                [void] $currentPaths.Add($parts[1])
+              }
+            }
+          }
+        }
+
+        foreach ($path in $oldPaths) {
+          if ($currentPaths.Contains($path)) {
+            continue
+          }
+
+          if ([System.IO.Path]::IsPathFullyQualified($path)) {
+            Write-Warning "Skipping stale submodule path outside the workspace: $path"
+            continue
+          }
+
+          $fullPath = [System.IO.Path]::GetFullPath((Join-Path $env:GITHUB_WORKSPACE $path))
+          if (-not $fullPath.StartsWith($workspace, $pathComparison)) {
+            Write-Warning "Skipping stale submodule path outside the workspace: $path"
+            continue
+          }
+
+          $trackedFiles = & git ls-files -- $path 2>$null
+          if ($LASTEXITCODE -eq 0 -and $trackedFiles) {
+            Write-Host "Skipping former submodule path because it is tracked in the current tree: $path"
+            continue
+          }
+
+          if (Test-Path -LiteralPath $fullPath) {
+            Write-Host "Removing stale submodule worktree: $path"
+            Remove-Item -LiteralPath $fullPath -Recurse -Force
+          }
+        }
 
     - name: Clean workspace
       shell: pwsh
