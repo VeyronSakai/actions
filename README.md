@@ -14,6 +14,19 @@ This repository hosts reusable composite actions that are shared across multiple
 | `unity/product-name` | Reads `productName` from `ProjectSettings/ProjectSettings.asset`. | `product-name` |
 | `unity/batch-mode` | Runs the Unity editor CLI in batch mode, resolving the editor path from the project version. | `unity-version`, `log-path` |
 
+## Versioning
+
+Releases are managed with [release-drafter](https://github.com/release-drafter/release-drafter). Each merged PR is categorized by label (`breaking changes` / `enhancement` / `bug`) into a draft release; publishing the draft moves the major (`vX`) and minor (`vX.Y`) tags to the released commit.
+
+Pin actions to a moving tag rather than a branch:
+
+```yaml
+- uses: VeyronSakai/actions/unity/batch-mode@v0      # latest within the major line
+- uses: VeyronSakai/actions/unity/batch-mode@v0.1    # latest within the minor line
+```
+
+Throughout this README, `@<ref>` stands for such a tag (or a commit SHA when you need to pin exactly).
+
 ## Usage
 
 ```yaml
