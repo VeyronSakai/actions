@@ -37,7 +37,7 @@ Enable `lfs: "true"` when the calling repository needs `actions/checkout` to res
 
 The `unity/*` actions assume a self-hosted macOS (or Windows) runner where Unity Hub is already installed and the editor is licensed. They resolve the editor executable from the project version under the Unity Hub editor root.
 
-`unity/batch-mode` is self-contained: it resolves the Unity version (from `ProjectVersion.txt` when `unity-version` is empty) and the editor path on its own, so it does not need `unity/project-version` first. By default the editor is looked up under the standard Unity Hub install location; pass `unity-editor-path` to point at a specific executable. First-class inputs cover the general-purpose flags (`execute-method`, `build-target`, `run-tests`, `no-graphics`, `quit`, `silent-crashes`); build-specific or any other flags go through `additional-args` (e.g. a development build via `-developmentBuild true`), one argument per line so values with spaces or secrets are never re-split by the shell.
+`unity/batch-mode` is self-contained: it resolves the Unity version from `ProjectVersion.txt` and the editor path on its own, so it does not need `unity/project-version` first. By default the editor is looked up under the standard Unity Hub install location; pass `unity-editor-path` to point at a specific executable. First-class inputs cover only the general-purpose flags (`execute-method`, `no-graphics`, `quit`, `silent-crashes`); command-specific flags go through `additional-args` (e.g. `-buildTarget Android`, `-runTests`, or a development build via `-developmentBuild true`), one argument per line so values with spaces or secrets are never re-split by the shell.
 
 Run a static method (script compile check):
 
@@ -45,7 +45,9 @@ Run a static method (script compile check):
 - uses: VeyronSakai/actions/unity/batch-mode@<ref>
   with:
     execute-method: Editor.ScriptCompileChecker.EntryPoint.Check
-    build-target: Android
+    additional-args: |
+      -buildTarget
+      Android
 ```
 
 Run tests (set `quit: "false"` so the editor stays alive for `-runTests`):
@@ -53,9 +55,9 @@ Run tests (set `quit: "false"` so the editor stays alive for `-runTests`):
 ```yaml
 - uses: VeyronSakai/actions/unity/batch-mode@<ref>
   with:
-    run-tests: "true"
     quit: "false"
     additional-args: |
+      -runTests
       -testResults
       UnityTestResults.xml
 ```
@@ -63,15 +65,12 @@ Run tests (set `quit: "false"` so the editor stays alive for `-runTests`):
 Build a player (extra flags and secrets via `additional-args`):
 
 ```yaml
-- uses: VeyronSakai/actions/unity/project-version@<ref>
-  id: unity-version
-
 - uses: VeyronSakai/actions/unity/batch-mode@<ref>
   with:
-    unity-version: ${{ steps.unity-version.outputs.unity-version }}
-    build-target: Android
     execute-method: VeUnityBuild.Editor.Presentations.BatchEntryPoint.Build
     additional-args: |
+      -buildTarget
+      Android
       -buildMode
       release
       -buildConfig

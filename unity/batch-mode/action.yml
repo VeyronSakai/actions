@@ -6,10 +6,6 @@ inputs:
     description: Path to the Unity project root.
     required: false
     default: "."
-  unity-version:
-    description: Unity editor version. If empty, it is read from ProjectVersion.txt.
-    required: false
-    default: ""
   unity-editor-path:
     description: Explicit path to the Unity editor executable. If empty, it is resolved from the version under the default Unity Hub install location (/Applications/Unity/Hub/Editor on macOS, C:/Program Files/Unity/Hub/Editor on Windows).
     required: false
@@ -18,20 +14,12 @@ inputs:
     description: Static C# method to execute (-executeMethod). Leave empty to omit.
     required: false
     default: ""
-  build-target:
-    description: Build target (-buildTarget), e.g. iOS, Android, StandaloneWindows64. Leave empty to omit.
-    required: false
-    default: ""
-  run-tests:
-    description: Run in test mode (-runTests).
-    required: false
-    default: "false"
   no-graphics:
     description: Run without a graphics device (-nographics). On Windows, -force-d3d11 is used instead when false.
     required: false
     default: "true"
   quit:
-    description: Quit after execution (-quit). Set to "false" for -runTests.
+    description: Quit after execution (-quit). Set to "false" when running tests via -runTests.
     required: false
     default: "true"
   silent-crashes:
@@ -39,7 +27,7 @@ inputs:
     required: false
     default: "true"
   additional-args:
-    description: Extra CLI arguments, one argument per line (no shell splitting). Use this for build-specific flags such as -developmentBuild true.
+    description: Extra CLI arguments, one argument per line (no shell splitting). Use this for command-specific flags such as -buildTarget Android, -runTests, or -developmentBuild true.
     required: false
     default: ""
 
@@ -59,11 +47,8 @@ runs:
       shell: pwsh
       env:
         PROJECT_PATH: ${{ inputs.project-path }}
-        UNITY_VERSION: ${{ inputs.unity-version }}
         UNITY_EDITOR_PATH: ${{ inputs.unity-editor-path }}
         EXECUTE_METHOD: ${{ inputs.execute-method }}
-        BUILD_TARGET: ${{ inputs.build-target }}
-        RUN_TESTS: ${{ inputs.run-tests }}
         NO_GRAPHICS: ${{ inputs.no-graphics }}
         QUIT: ${{ inputs.quit }}
         SILENT_CRASHES: ${{ inputs.silent-crashes }}
@@ -71,24 +56,21 @@ runs:
       run: |
         $ErrorActionPreference = "Stop"
 
-        # --- Resolve Unity version ---
-        $version = $env:UNITY_VERSION
-        if ([string]::IsNullOrWhiteSpace($version)) {
-          $versionFile = Join-Path $env:PROJECT_PATH "ProjectSettings/ProjectVersion.txt"
-          if (-not (Test-Path -LiteralPath $versionFile)) {
-            throw "ProjectVersion.txt not found at $versionFile"
-          }
-          $content = Get-Content -LiteralPath $versionFile -Raw
-          if ($content -notmatch '(?m)^m_EditorVersion:\s*(\S+)') {
-            throw "m_EditorVersion not found in $versionFile"
-          }
-          $version = $Matches[1]
+        # --- Resolve Unity version (from ProjectVersion.txt) ---
+        $versionFile = Join-Path $env:PROJECT_PATH "ProjectSettings/ProjectVersion.txt"
+        if (-not (Test-Path -LiteralPath $versionFile)) {
+          throw "ProjectVersion.txt not found at $versionFile"
         }
+        $content = Get-Content -LiteralPath $versionFile -Raw
+        if ($content -notmatch '(?m)^m_EditorVersion:\s*(\S+)') {
+          throw "m_EditorVersion not found in $versionFile"
+        }
+        $version = $Matches[1]
         "unity-version=$version" >> $env:GITHUB_OUTPUT
 
         # --- Resolve editor path ---
-        # 明示指定 (unity-editor-path) があればそれを使う。無ければ OS 既定の
-        # Unity Hub インストール先から version でパスを組み立てる。
+        # Use unity-editor-path if given; otherwise build the path from the
+        # default Unity Hub install location and the resolved version.
         $editorPath = $env:UNITY_EDITOR_PATH
         if ([string]::IsNullOrWhiteSpace($editorPath)) {
           if ($IsWindows) {
@@ -113,13 +95,9 @@ runs:
         } elseif ($IsWindows) {
           $unityArgs += "-force-d3d11"
         }
-        if (-not [string]::IsNullOrWhiteSpace($env:BUILD_TARGET)) {
-          $unityArgs += @("-buildTarget", $env:BUILD_TARGET)
-        }
         if (-not [string]::IsNullOrWhiteSpace($env:EXECUTE_METHOD)) {
           $unityArgs += @("-executeMethod", $env:EXECUTE_METHOD)
         }
-        if ($env:RUN_TESTS -eq "true") { $unityArgs += "-runTests" }
         # additional-args: one argument per line, no shell splitting.
         if (-not [string]::IsNullOrWhiteSpace($env:ADDITIONAL_ARGS)) {
           foreach ($line in ($env:ADDITIONAL_ARGS -split "`n")) {
