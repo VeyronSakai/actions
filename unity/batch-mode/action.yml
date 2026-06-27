@@ -27,7 +27,7 @@ inputs:
     required: false
     default: "true"
   additional-args:
-    description: Extra CLI arguments, one argument per line (no shell splitting). Use this for command-specific flags such as -buildTarget Android, -runTests, or -developmentBuild true.
+    description: Extra CLI arguments, space-separated. Each whitespace-delimited token becomes one argument, so an individual value cannot contain spaces. Use this for command-specific flags such as -buildTarget Android, -runTests, or -developmentBuild true.
     required: false
     default: ""
 
@@ -97,12 +97,9 @@ runs:
         if (-not [string]::IsNullOrWhiteSpace($env:EXECUTE_METHOD)) {
           $unityArgs += @("-executeMethod", $env:EXECUTE_METHOD)
         }
-        # additional-args: one argument per line, no shell splitting.
+        # additional-args: space-separated; split on any whitespace.
         if (-not [string]::IsNullOrWhiteSpace($env:ADDITIONAL_ARGS)) {
-          foreach ($line in ($env:ADDITIONAL_ARGS -split "`n")) {
-            $arg = $line.TrimEnd("`r")
-            if (-not [string]::IsNullOrWhiteSpace($arg)) { $unityArgs += $arg }
-          }
+          $unityArgs += ($env:ADDITIONAL_ARGS -split '\s+' | Where-Object { $_ })
         }
 
         # --- Run ---
