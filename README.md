@@ -16,7 +16,7 @@ This repository hosts reusable composite actions that are shared across multiple
 
 ## Versioning
 
-Releases are managed with [release-drafter](https://github.com/release-drafter/release-drafter). Each merged PR is categorized by label (`breaking changes` / `enhancement` / `bug`) into a draft release; publishing the draft moves the major (`vX`) and minor (`vX.Y`) tags to the released commit.
+Releases are managed with [release-drafter](https://github.com/release-drafter/release-drafter). Each PR is categorized by label (`breaking changes` / `enhancement` / `bug`) and accumulated into a draft release by the **Release** workflow. Running that workflow manually (`workflow_dispatch`) publishes the current draft and moves the major (`vX`) and minor (`vX.Y`) tags to the released commit.
 
 Pin actions to a moving tag rather than a branch:
 

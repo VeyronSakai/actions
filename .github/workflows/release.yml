@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - closed
+  workflow_dispatch:
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  update-draft:
+    name: Update Draft
+    if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main') || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: release-drafter/release-drafter@139054aeaa9adc52ab36ddf67437541f039b88e2
+        id: release-drafter
+        with:
+          commitish: main
+
+  release:
+    name: Release
+    needs: update-draft
+    # 版ファイルを持たないため、リリースの publish は手動 (workflow_dispatch) で行う。
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    environment: Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: ${{ github.workflow }}
+      cancel-in-progress: false
+    steps:
+      - uses: release-drafter/release-drafter@139054aeaa9adc52ab36ddf67437541f039b88e2
+        id: release-drafter
+        with:
+          publish: true
+          commitish: main
+      - name: Get semver
+        id: get-semver
+        env:
+          VERSION: ${{ steps.release-drafter.outputs.tag_name }}
+        run: |
+          if ($env:VERSION -match '^v?(\d+)\.(\d+)\.(\d+)') {
+            $major = $matches[1]
+            $minor = $matches[2]
+            $patch = $matches[3]
+            "major=v$major" | Add-Content -Path $env:GITHUB_OUTPUT
+            "minor=v$major.$minor" | Add-Content -Path $env:GITHUB_OUTPUT
+            "patch=v$major.$minor.$patch" | Add-Content -Path $env:GITHUB_OUTPUT
+          } else {
+            Write-Error "Unable to parse version: $env:VERSION"
+            exit 1
+          }
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ steps.release-drafter.outputs.tag_name }}
+          persist-credentials: true
+      - name: Update major tag
+        env:
+          VERSION: ${{ steps.release-drafter.outputs.tag_name }}
+          MAJOR_TAG: ${{ steps.get-semver.outputs.major }}
+        run: |
+          $refspec = "refs/tags/${env:VERSION}:refs/tags/${env:MAJOR_TAG}"
+          git push -f origin $refspec
+      - name: Update minor tag
+        env:
+          VERSION: ${{ steps.release-drafter.outputs.tag_name }}
+          MINOR_TAG: ${{ steps.get-semver.outputs.minor }}
+        run: |
+          $refspec = "refs/tags/${env:VERSION}:refs/tags/${env:MINOR_TAG}"
+          git push -f origin $refspec
