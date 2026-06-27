@@ -1,0 +1,32 @@
+name: Get Unity project version
+description: Read m_EditorVersion from ProjectSettings/ProjectVersion.txt and expose it as an output.
+
+inputs:
+  project-path:
+    description: Path to the Unity project root.
+    required: false
+    default: "."
+
+outputs:
+  unity-version:
+    description: The Unity editor version (e.g. 6000.3.10f1).
+    value: ${{ steps.get-version.outputs.unity-version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Get Unity version
+      id: get-version
+      shell: pwsh
+      env:
+        PROJECT_PATH: ${{ inputs.project-path }}
+      run: |
+        $versionFile = Join-Path $env:PROJECT_PATH "ProjectSettings/ProjectVersion.txt"
+        if (-not (Test-Path -LiteralPath $versionFile)) {
+          throw "ProjectVersion.txt not found at $versionFile"
+        }
+        $content = Get-Content -LiteralPath $versionFile -Raw
+        if ($content -notmatch '(?m)^m_EditorVersion:\s*(\S+)') {
+          throw "m_EditorVersion not found in $versionFile"
+        }
+        "unity-version=$($Matches[1])" >> $env:GITHUB_OUTPUT

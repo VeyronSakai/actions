@@ -1,0 +1,158 @@
+name: Run Unity in batch mode
+description: Run the Unity editor CLI in batch mode, resolving the editor path from the project version.
+
+inputs:
+  project-path:
+    description: Path to the Unity project root.
+    required: false
+    default: "."
+  unity-version:
+    description: Unity editor version. If empty, it is read from ProjectVersion.txt.
+    required: false
+    default: ""
+  unity-editor-path:
+    description: Explicit path to the Unity editor executable. If empty, it is resolved from the version and OS.
+    required: false
+    default: ""
+  execute-method:
+    description: Static C# method to execute (-executeMethod). Leave empty to omit.
+    required: false
+    default: ""
+  build-target:
+    description: Build target (-buildTarget), e.g. iOS, Android, StandaloneWindows64. Leave empty to omit.
+    required: false
+    default: ""
+  run-tests:
+    description: Run in test mode (-runTests).
+    required: false
+    default: "false"
+  no-graphics:
+    description: Run without a graphics device (-nographics). On Windows, -force-d3d11 is used instead when false.
+    required: false
+    default: "true"
+  quit:
+    description: Quit after execution (-quit). Set to "false" for -runTests.
+    required: false
+    default: "true"
+  silent-crashes:
+    description: Suppress the crash dialog (-silent-crashes).
+    required: false
+    default: "true"
+  force-development-build:
+    description: Pass -developmentBuild true/false. Leave empty to omit.
+    required: false
+    default: ""
+  additional-args:
+    description: Extra CLI arguments, one argument per line (no shell splitting).
+    required: false
+    default: ""
+  win-unity-root-path:
+    description: Unity Hub editor root on Windows.
+    required: false
+    default: "C:/Program Files/Unity/Hub/Editor"
+  mac-unity-root-path:
+    description: Unity Hub editor root on macOS.
+    required: false
+    default: "/Applications/Unity/Hub/Editor"
+
+outputs:
+  unity-version:
+    description: The resolved Unity editor version.
+    value: ${{ steps.run.outputs.unity-version }}
+  editor-path:
+    description: The resolved Unity editor executable path.
+    value: ${{ steps.run.outputs.editor-path }}
+  log-path:
+    description: Path to the captured log file.
+    value: ${{ steps.run.outputs.log-path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Run Unity
+      id: run
+      shell: pwsh
+      env:
+        PROJECT_PATH: ${{ inputs.project-path }}
+        UNITY_VERSION: ${{ inputs.unity-version }}
+        UNITY_EDITOR_PATH: ${{ inputs.unity-editor-path }}
+        EXECUTE_METHOD: ${{ inputs.execute-method }}
+        BUILD_TARGET: ${{ inputs.build-target }}
+        RUN_TESTS: ${{ inputs.run-tests }}
+        NO_GRAPHICS: ${{ inputs.no-graphics }}
+        QUIT: ${{ inputs.quit }}
+        SILENT_CRASHES: ${{ inputs.silent-crashes }}
+        FORCE_DEVELOPMENT_BUILD: ${{ inputs.force-development-build }}
+        ADDITIONAL_ARGS: ${{ inputs.additional-args }}
+        WIN_ROOT_PATH: ${{ inputs.win-unity-root-path }}
+        MAC_ROOT_PATH: ${{ inputs.mac-unity-root-path }}
+      run: |
+        $ErrorActionPreference = "Stop"
+
+        # --- Resolve Unity version ---
+        $version = $env:UNITY_VERSION
+        if ([string]::IsNullOrWhiteSpace($version)) {
+          $versionFile = Join-Path $env:PROJECT_PATH "ProjectSettings/ProjectVersion.txt"
+          if (-not (Test-Path -LiteralPath $versionFile)) {
+            throw "ProjectVersion.txt not found at $versionFile"
+          }
+          $content = Get-Content -LiteralPath $versionFile -Raw
+          if ($content -notmatch '(?m)^m_EditorVersion:\s*(\S+)') {
+            throw "m_EditorVersion not found in $versionFile"
+          }
+          $version = $Matches[1]
+        }
+        "unity-version=$version" >> $env:GITHUB_OUTPUT
+
+        # --- Resolve editor path ---
+        $editorPath = $env:UNITY_EDITOR_PATH
+        if ([string]::IsNullOrWhiteSpace($editorPath)) {
+          if ($IsWindows) {
+            $editorPath = "$env:WIN_ROOT_PATH/$version/Editor/Unity.exe"
+          } elseif ($IsMacOS) {
+            $editorPath = "$env:MAC_ROOT_PATH/$version/Unity.app/Contents/MacOS/Unity"
+          } else {
+            throw "Unsupported OS: $($PSVersionTable.OS)"
+          }
+        }
+        if (-not (Test-Path -LiteralPath $editorPath)) {
+          throw "Unity editor not found at $editorPath"
+        }
+        "editor-path=$editorPath" >> $env:GITHUB_OUTPUT
+        Write-Host "Using Unity $version at $editorPath"
+
+        # --- Build argument list ---
+        $unityArgs = @("-batchmode", "-projectPath", $env:PROJECT_PATH, "-logFile", "-")
+        if ($env:SILENT_CRASHES -eq "true") { $unityArgs += "-silent-crashes" }
+        if ($env:QUIT -eq "true")           { $unityArgs += "-quit" }
+        if ($env:NO_GRAPHICS -eq "true") {
+          $unityArgs += "-nographics"
+        } elseif ($IsWindows) {
+          $unityArgs += "-force-d3d11"
+        }
+        if (-not [string]::IsNullOrWhiteSpace($env:BUILD_TARGET)) {
+          $unityArgs += @("-buildTarget", $env:BUILD_TARGET)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($env:EXECUTE_METHOD)) {
+          $unityArgs += @("-executeMethod", $env:EXECUTE_METHOD)
+        }
+        if ($env:RUN_TESTS -eq "true") { $unityArgs += "-runTests" }
+        switch ($env:FORCE_DEVELOPMENT_BUILD) {
+          "true"  { $unityArgs += @("-developmentBuild", "true") }
+          "false" { $unityArgs += @("-developmentBuild", "false") }
+          default { }
+        }
+        # additional-args: one argument per line, no shell splitting.
+        if (-not [string]::IsNullOrWhiteSpace($env:ADDITIONAL_ARGS)) {
+          foreach ($line in ($env:ADDITIONAL_ARGS -split "`n")) {
+            $arg = $line.TrimEnd("`r")
+            if (-not [string]::IsNullOrWhiteSpace($arg)) { $unityArgs += $arg }
+          }
+        }
+
+        # --- Run ---
+        $timestamp = Get-Date -UFormat %s
+        $logPath = "unity_${timestamp}.log"
+        "log-path=$logPath" >> $env:GITHUB_OUTPUT
+        & $editorPath $unityArgs | Tee-Object -FilePath $logPath
+        exit $LASTEXITCODE
