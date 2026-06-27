@@ -11,7 +11,7 @@ inputs:
     required: false
     default: ""
   unity-editor-path:
-    description: Explicit path to the Unity editor executable. If empty, it is resolved from the version and OS.
+    description: Explicit path to the Unity editor executable. If empty, it is resolved from the version under the default Unity Hub install location (/Applications/Unity/Hub/Editor on macOS, C:/Program Files/Unity/Hub/Editor on Windows).
     required: false
     default: ""
   execute-method:
@@ -38,30 +38,15 @@ inputs:
     description: Suppress the crash dialog (-silent-crashes).
     required: false
     default: "true"
-  force-development-build:
-    description: Pass -developmentBuild true/false. Leave empty to omit.
-    required: false
-    default: ""
   additional-args:
-    description: Extra CLI arguments, one argument per line (no shell splitting).
+    description: Extra CLI arguments, one argument per line (no shell splitting). Use this for build-specific flags such as -developmentBuild true.
     required: false
     default: ""
-  win-unity-root-path:
-    description: Unity Hub editor root on Windows.
-    required: false
-    default: "C:/Program Files/Unity/Hub/Editor"
-  mac-unity-root-path:
-    description: Unity Hub editor root on macOS.
-    required: false
-    default: "/Applications/Unity/Hub/Editor"
 
 outputs:
   unity-version:
     description: The resolved Unity editor version.
     value: ${{ steps.run.outputs.unity-version }}
-  editor-path:
-    description: The resolved Unity editor executable path.
-    value: ${{ steps.run.outputs.editor-path }}
   log-path:
     description: Path to the captured log file.
     value: ${{ steps.run.outputs.log-path }}
@@ -82,10 +67,7 @@ runs:
         NO_GRAPHICS: ${{ inputs.no-graphics }}
         QUIT: ${{ inputs.quit }}
         SILENT_CRASHES: ${{ inputs.silent-crashes }}
-        FORCE_DEVELOPMENT_BUILD: ${{ inputs.force-development-build }}
         ADDITIONAL_ARGS: ${{ inputs.additional-args }}
-        WIN_ROOT_PATH: ${{ inputs.win-unity-root-path }}
-        MAC_ROOT_PATH: ${{ inputs.mac-unity-root-path }}
       run: |
         $ErrorActionPreference = "Stop"
 
@@ -105,12 +87,14 @@ runs:
         "unity-version=$version" >> $env:GITHUB_OUTPUT
 
         # --- Resolve editor path ---
+        # 明示指定 (unity-editor-path) があればそれを使う。無ければ OS 既定の
+        # Unity Hub インストール先から version でパスを組み立てる。
         $editorPath = $env:UNITY_EDITOR_PATH
         if ([string]::IsNullOrWhiteSpace($editorPath)) {
           if ($IsWindows) {
-            $editorPath = "$env:WIN_ROOT_PATH/$version/Editor/Unity.exe"
+            $editorPath = "C:/Program Files/Unity/Hub/Editor/$version/Editor/Unity.exe"
           } elseif ($IsMacOS) {
-            $editorPath = "$env:MAC_ROOT_PATH/$version/Unity.app/Contents/MacOS/Unity"
+            $editorPath = "/Applications/Unity/Hub/Editor/$version/Unity.app/Contents/MacOS/Unity"
           } else {
             throw "Unsupported OS: $($PSVersionTable.OS)"
           }
@@ -118,7 +102,6 @@ runs:
         if (-not (Test-Path -LiteralPath $editorPath)) {
           throw "Unity editor not found at $editorPath"
         }
-        "editor-path=$editorPath" >> $env:GITHUB_OUTPUT
         Write-Host "Using Unity $version at $editorPath"
 
         # --- Build argument list ---
@@ -137,11 +120,6 @@ runs:
           $unityArgs += @("-executeMethod", $env:EXECUTE_METHOD)
         }
         if ($env:RUN_TESTS -eq "true") { $unityArgs += "-runTests" }
-        switch ($env:FORCE_DEVELOPMENT_BUILD) {
-          "true"  { $unityArgs += @("-developmentBuild", "true") }
-          "false" { $unityArgs += @("-developmentBuild", "false") }
-          default { }
-        }
         # additional-args: one argument per line, no shell splitting.
         if (-not [string]::IsNullOrWhiteSpace($env:ADDITIONAL_ARGS)) {
           foreach ($line in ($env:ADDITIONAL_ARGS -split "`n")) {
