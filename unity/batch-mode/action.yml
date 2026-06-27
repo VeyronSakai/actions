@@ -34,7 +34,7 @@ inputs:
 outputs:
   unity-version:
     description: The resolved Unity editor version.
-    value: ${{ steps.run.outputs.unity-version }}
+    value: ${{ steps.project-version.outputs.unity-version }}
   log-path:
     description: Path to the captured log file.
     value: ${{ steps.run.outputs.log-path }}
@@ -42,11 +42,20 @@ outputs:
 runs:
   using: composite
   steps:
+    # composite からは相対 uses (./...) が呼び出し側 workspace 基準で解決され使えないため
+    # (actions/runner#1348)、同一リポジトリの project-version を絶対参照で呼ぶ。
+    - name: Get project version
+      id: project-version
+      uses: VeyronSakai/actions/unity/project-version@d21ef60197a93970e134c6dfe8f6f6ce11259cfc
+      with:
+        project-path: ${{ inputs.project-path }}
+
     - name: Run Unity
       id: run
       shell: pwsh
       env:
         PROJECT_PATH: ${{ inputs.project-path }}
+        UNITY_VERSION: ${{ steps.project-version.outputs.unity-version }}
         UNITY_EDITOR_PATH: ${{ inputs.unity-editor-path }}
         EXECUTE_METHOD: ${{ inputs.execute-method }}
         NO_GRAPHICS: ${{ inputs.no-graphics }}
@@ -56,17 +65,7 @@ runs:
       run: |
         $ErrorActionPreference = "Stop"
 
-        # --- Resolve Unity version (from ProjectVersion.txt) ---
-        $versionFile = Join-Path $env:PROJECT_PATH "ProjectSettings/ProjectVersion.txt"
-        if (-not (Test-Path -LiteralPath $versionFile)) {
-          throw "ProjectVersion.txt not found at $versionFile"
-        }
-        $content = Get-Content -LiteralPath $versionFile -Raw
-        if ($content -notmatch '(?m)^m_EditorVersion:\s*(\S+)') {
-          throw "m_EditorVersion not found in $versionFile"
-        }
-        $version = $Matches[1]
-        "unity-version=$version" >> $env:GITHUB_OUTPUT
+        $version = $env:UNITY_VERSION
 
         # --- Resolve editor path ---
         # Use unity-editor-path if given; otherwise build the path from the
