@@ -1,0 +1,32 @@
+name: Get Unity product name
+description: Read productName from ProjectSettings/ProjectSettings.asset and expose it as an output.
+
+inputs:
+  project-path:
+    description: Path to the Unity project root.
+    required: false
+    default: "."
+
+outputs:
+  product-name:
+    description: The Unity product name.
+    value: ${{ steps.get-product-name.outputs.product-name }}
+
+runs:
+  using: composite
+  steps:
+    - name: Get product name
+      id: get-product-name
+      shell: pwsh
+      env:
+        PROJECT_PATH: ${{ inputs.project-path }}
+      run: |
+        $settingsFile = Join-Path $env:PROJECT_PATH "ProjectSettings/ProjectSettings.asset"
+        if (-not (Test-Path -LiteralPath $settingsFile)) {
+          throw "ProjectSettings.asset not found at $settingsFile"
+        }
+        $content = Get-Content -LiteralPath $settingsFile -Raw
+        if ($content -notmatch '(?m)^\s*productName:\s*(.+?)\s*$') {
+          throw "productName not found in $settingsFile"
+        }
+        "product-name=$($Matches[1])" >> $env:GITHUB_OUTPUT
