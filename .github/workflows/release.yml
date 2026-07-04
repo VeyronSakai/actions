@@ -75,6 +75,8 @@ jobs:
           ref: ${{ steps.release-drafter.outputs.tag_name }}
           persist-credentials: true
       - name: Update major tag
+        # メジャーが 0 の間 (0.x) は v0 タグを打たない。1 以上でのみ v1/v2 を張る。
+        if: ${{ steps.get-semver.outputs.major != 'v0' }}
         env:
           VERSION: ${{ steps.release-drafter.outputs.tag_name }}
           MAJOR_TAG: ${{ steps.get-semver.outputs.major }}
