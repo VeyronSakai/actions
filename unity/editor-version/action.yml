@@ -1,4 +1,4 @@
-name: Get Unity project version
+name: Get Unity editor version
 description: Read m_EditorVersion from ProjectSettings/ProjectVersion.txt and expose it as an output.
 
 inputs:

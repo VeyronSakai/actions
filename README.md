@@ -10,9 +10,9 @@ This repository hosts reusable composite actions that are shared across multiple
 | --- | --- | --- |
 | `git/config` | Reads `.lfsconfig` from the calling repository with `gh api` and extracts the Git LFS endpoint URL. | `lfs-url` |
 | `git/checkout` | Runs `actions/checkout@v6` and can optionally read `.lfsconfig` to inject a custom Git LFS endpoint first. | `lfs-url` |
-| `unity/project-version` | Reads `m_EditorVersion` from `ProjectSettings/ProjectVersion.txt`. | `unity-version` |
+| `unity/editor-version` | Reads `m_EditorVersion` from `ProjectSettings/ProjectVersion.txt`. | `unity-version` |
 | `unity/product-name` | Reads `productName` from `ProjectSettings/ProjectSettings.asset`. | `product-name` |
-| `unity/batch-mode` | Runs the Unity editor CLI in batch mode, resolving the editor path from the project version. | `unity-version`, `log-path` |
+| `unity/batch-mode` | Runs the Unity editor CLI in batch mode, resolving the editor path from the project's editor version. | `unity-version`, `log-path` |
 
 ## Versioning
 
@@ -48,9 +48,9 @@ Enable `lfs: "true"` when the calling repository needs `actions/checkout` to res
 
 ### Unity actions
 
-The `unity/*` actions assume a self-hosted macOS (or Windows) runner where Unity Hub is already installed and the editor is licensed. They resolve the editor executable from the project version under the Unity Hub editor root.
+The `unity/*` actions assume a self-hosted macOS (or Windows) runner where Unity Hub is already installed and the editor is licensed. They resolve the editor executable from the project's editor version under the Unity Hub editor root.
 
-`unity/batch-mode` is self-contained: it resolves the Unity version from `ProjectVersion.txt` and the editor path on its own, so it does not need `unity/project-version` first. By default the editor is looked up under the standard Unity Hub install location; pass `unity-editor-path` to point at a specific executable. First-class inputs cover only the general-purpose flags (`execute-method`, `no-graphics`, `quit`, `silent-crashes`); command-specific flags go through `additional-args` (e.g. `-buildTarget Android`, `-runTests`, or a development build via `-developmentBuild true`), given as a space-separated string (each whitespace-delimited token becomes one argument, so a value cannot itself contain spaces).
+`unity/batch-mode` is self-contained: it resolves the Unity version from `ProjectVersion.txt` and the editor path on its own, so it does not need `unity/editor-version` first. By default the editor is looked up under the standard Unity Hub install location; pass `unity-editor-path` to point at a specific executable. First-class inputs cover only the general-purpose flags (`execute-method`, `no-graphics`, `quit`, `silent-crashes`); command-specific flags go through `additional-args` (e.g. `-buildTarget Android`, `-runTests`, or a development build via `-developmentBuild true`), given as a space-separated string (each whitespace-delimited token becomes one argument, so a value cannot itself contain spaces).
 
 Run a static method (script compile check):
 
