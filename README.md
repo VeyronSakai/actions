@@ -13,7 +13,7 @@ This repository hosts reusable composite actions that are shared across multiple
 | `unity/editor-version` | Reads `m_EditorVersion` from `ProjectSettings/ProjectVersion.txt`. | `unity-version` |
 | `unity/product-name` | Reads `productName` from `ProjectSettings/ProjectSettings.asset`. | `product-name` |
 | `unity/batch-mode` | Runs the Unity editor CLI in batch mode, resolving the editor path from the project's editor version. | `unity-version`, `log-path` |
-| `firebase/app-distribution` | Uploads an app binary to Firebase App Distribution using the standalone Firebase CLI. | — |
+| `firebase/distribute-app` | Uploads an app binary to Firebase App Distribution using the standalone Firebase CLI. | — |
 
 ## Versioning
 
@@ -85,13 +85,13 @@ Build a player (extra flags via `additional-args`):
 
 ### Firebase App Distribution
 
-`firebase/app-distribution` downloads the standalone Firebase CLI (no Node required), caches it under
+`firebase/distribute-app` downloads the standalone Firebase CLI (no Node required), caches it under
 `RUNNER_TOOL_CACHE`, and uploads a binary. Authentication uses a service account with the
 **Firebase App Distribution Admin** role (`roles/firebaseappdistro.admin`) on the app's project; the JSON
 is written to a temporary file for the duration of the step and removed afterwards.
 
 ```yaml
-- uses: VeyronSakai/actions/firebase/app-distribution@<ref>
+- uses: VeyronSakai/actions/firebase/distribute-app@<ref>
   with:
     binary-path: path/to/App.ipa
     app-id: ${{ vars.FIREBASE_IOS_APP_ID }}
