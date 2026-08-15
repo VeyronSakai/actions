@@ -1,0 +1,83 @@
+name: Distribute to Firebase App Distribution
+description: Upload an app binary to Firebase App Distribution using the standalone Firebase CLI.
+
+inputs:
+  binary-path:
+    description: Path to the binary to upload (.ipa / .apk / .aab).
+    required: true
+  app-id:
+    description: Firebase App ID (e.g. 1:1234567890:ios:abcdef).
+    required: true
+  service-account-json:
+    description: Service account JSON with the Firebase App Distribution Admin role.
+    required: true
+  testers:
+    description: Comma-separated tester emails. Unregistered addresses are added and invited automatically.
+    required: false
+    default: ""
+  groups:
+    description: Comma-separated tester group aliases.
+    required: false
+    default: ""
+  release-notes:
+    description: Release notes shown to testers.
+    required: false
+    default: ""
+  firebase-tools-version:
+    description: Firebase CLI version to use, as accepted by firebase.tools (e.g. latest, v14.0.0).
+    required: false
+    default: "latest"
+
+runs:
+  using: composite
+  steps:
+    - name: Distribute to Firebase App Distribution
+      shell: pwsh
+      env:
+        BINARY_PATH: ${{ inputs.binary-path }}
+        APP_ID: ${{ inputs.app-id }}
+        SERVICE_ACCOUNT_JSON: ${{ inputs.service-account-json }}
+        TESTERS: ${{ inputs.testers }}
+        GROUPS: ${{ inputs.groups }}
+        RELEASE_NOTES: ${{ inputs.release-notes }}
+        FIREBASE_TOOLS_VERSION: ${{ inputs.firebase-tools-version }}
+      run: |
+        if (-not (Test-Path -LiteralPath $env:BINARY_PATH)) {
+          throw "Binary not found at $env:BINARY_PATH"
+        }
+
+        # Write the service account JSON to a temporary file for the Firebase CLI to authenticate with.
+        $creds = (New-TemporaryFile).FullName
+        try {
+          Set-Content -LiteralPath $creds -Value $env:SERVICE_ACCOUNT_JSON -NoNewline
+          $env:GOOGLE_APPLICATION_CREDENTIALS = $creds
+
+          # Standalone Firebase CLI (no Node required). Cache it under RUNNER_TOOL_CACHE per version.
+          $platform = if ($IsWindows) { "win" } elseif ($IsLinux) { "linux" } else { "macos" }
+          $exe = if ($IsWindows) { "firebase.exe" } else { "firebase" }
+          $firebaseBin = Join-Path $env:RUNNER_TOOL_CACHE "firebase/$env:FIREBASE_TOOLS_VERSION/$exe"
+          if (-not (Test-Path -LiteralPath $firebaseBin)) {
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $firebaseBin) | Out-Null
+            $ProgressPreference = "SilentlyContinue"
+            Invoke-WebRequest -Uri "https://firebase.tools/bin/$platform/$env:FIREBASE_TOOLS_VERSION" -OutFile $firebaseBin
+            if (-not $IsWindows) { chmod +x $firebaseBin }
+          }
+
+          $distributeArgs = @($env:BINARY_PATH, "--app", $env:APP_ID)
+          if ($env:RELEASE_NOTES) { $distributeArgs += "--release-notes", $env:RELEASE_NOTES }
+          if ($env:TESTERS) { $distributeArgs += "--testers", $env:TESTERS }
+          if ($env:GROUPS) { $distributeArgs += "--groups", $env:GROUPS }
+
+          # With no testers and no groups the CLI still exits 0, so the release is created but reaches nobody.
+          if (-not $env:TESTERS -and -not $env:GROUPS) {
+            Write-Host "::warning::Neither testers nor groups were given. The release will be created but distributed to nobody."
+          }
+
+          & $firebaseBin appdistribution:distribute @distributeArgs
+          if ($LASTEXITCODE -ne 0) {
+            throw "firebase appdistribution:distribute failed with exit code $LASTEXITCODE"
+          }
+        }
+        finally {
+          Remove-Item -LiteralPath $creds -Force -ErrorAction SilentlyContinue
+        }
