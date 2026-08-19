@@ -86,18 +86,34 @@ Build a player (extra flags via `additional-args`):
 ### Firebase App Distribution
 
 `firebase/distribute-app` downloads the standalone Firebase CLI (no Node required), caches it under
-`RUNNER_TOOL_CACHE`, and uploads a binary. Authentication uses a service account with the
-**Firebase App Distribution Admin** role (`roles/firebaseappdistro.admin`) on the app's project; the JSON
-is written to a temporary file for the duration of the step and removed afterwards.
+`RUNNER_TOOL_CACHE`, and uploads a binary. Authentication goes through Workload Identity Federation:
+the action runs [`google-github-actions/auth`](https://github.com/google-github-actions/auth) to exchange
+the job's OIDC token for short-lived credentials of a service account holding the
+**Firebase App Distribution Admin** role (`roles/firebaseappdistro.admin`) on the app's project. No service
+account key is involved.
+
+The calling job must grant `id-token: write`, otherwise no OIDC token is issued and the exchange fails.
 
 ```yaml
-- uses: VeyronSakai/actions/firebase/distribute-app@<ref>
-  with:
-    binary-path: path/to/App.ipa
-    app-id: ${{ vars.FIREBASE_IOS_APP_ID }}
-    service-account-json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
-    testers: someone@example.com
+permissions:
+  id-token: write
+  contents: read
+
+steps:
+  - uses: VeyronSakai/actions/firebase/distribute-app@<ref>
+    with:
+      binary-path: path/to/App.ipa
+      app-id: ${{ vars.FIREBASE_IOS_APP_ID }}
+      workload-identity-provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      service-account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+      testers: someone@example.com
 ```
+
+`workload-identity-provider` is the full resource name
+(`projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>`). Restrict the
+provider with an `--attribute-condition` on the repository owner and grant
+`roles/iam.workloadIdentityUser` to the matching principal set; otherwise any GitHub repository can
+authenticate through it.
 
 `testers` (comma-separated emails) and `groups` (comma-separated group aliases) may be combined. Addresses
 passed to `testers` that are not yet registered are added to the project and invited automatically, so there
@@ -108,4 +124,7 @@ nobody, which looks like a successful build until someone notices no email arriv
 annotation in that case.
 
 Pin `firebase-tools-version` (default `latest`) when a reproducible CLI version matters. The cache is keyed by
-that value, so `latest` is fetched once per runner and then reused.
+that value, so `latest` is fetched once per runner and then reused. Pinning is recommended here: the CLI's
+Application Default Credentials handling has regressed before
+([firebase-tools#10716](https://github.com/firebase/firebase-tools/issues/10716)), and with `latest` such a
+release reaches the runners unreviewed.
