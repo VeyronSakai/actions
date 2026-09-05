@@ -1,0 +1,44 @@
+name: Setup Firebase CLI
+description: Install the standalone Firebase CLI into the runner tool cache and add it to PATH.
+
+inputs:
+  firebase-tools-version:
+    description: Firebase CLI version to install, as accepted by firebase.tools (e.g. latest, v15.27.0).
+    required: false
+    default: "latest"
+
+outputs:
+  firebase-path:
+    description: Absolute path to the installed firebase executable.
+    value: ${{ steps.setup-firebase-cli.outputs.firebase-path }}
+
+runs:
+  using: composite
+  steps:
+    # The standalone build needs no Node, so nothing is installed globally.
+    # This keeps self-hosted runners clean; the binary is cached per version
+    # under RUNNER_TOOL_CACHE and reused by later jobs.
+    - name: Setup Firebase CLI
+      id: setup-firebase-cli
+      shell: pwsh
+      env:
+        FIREBASE_TOOLS_VERSION: ${{ inputs.firebase-tools-version }}
+      run: |
+        $ErrorActionPreference = "Stop"
+        $platform = if ($IsWindows) { "win" } elseif ($IsLinux) { "linux" } else { "macos" }
+        $exe = if ($IsWindows) { "firebase.exe" } else { "firebase" }
+        $dir = Join-Path $env:RUNNER_TOOL_CACHE "firebase/$env:FIREBASE_TOOLS_VERSION"
+        $bin = Join-Path $dir $exe
+
+        # Cached per version string, matching firebase/distribute-app: "latest" is
+        # fetched once per runner and then reused.
+        if (-not (Test-Path -LiteralPath $bin)) {
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $ProgressPreference = "SilentlyContinue"
+          Invoke-WebRequest -Uri "https://firebase.tools/bin/$platform/$env:FIREBASE_TOOLS_VERSION" -OutFile $bin
+          if (-not $IsWindows) { chmod +x $bin }
+        }
+
+        $dir >> $env:GITHUB_PATH
+        "firebase-path=$bin" >> $env:GITHUB_OUTPUT
+        & $bin --version

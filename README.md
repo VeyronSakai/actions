@@ -13,6 +13,7 @@ This repository hosts reusable composite actions that are shared across multiple
 | `unity/editor-version` | Reads `m_EditorVersion` from `ProjectSettings/ProjectVersion.txt`. | `unity-version` |
 | `unity/product-name` | Reads `productName` from `ProjectSettings/ProjectSettings.asset`. | `product-name` |
 | `unity/batch-mode` | Runs the Unity editor CLI in batch mode, resolving the editor path from the project's editor version. | `unity-version`, `log-path` |
+| `firebase/setup-cli` | Installs the standalone Firebase CLI into the runner tool cache and adds it to `PATH`. | `firebase-path` |
 | `firebase/distribute-app` | Uploads an app binary to Firebase App Distribution using the standalone Firebase CLI. | — |
 
 ## Versioning
@@ -82,6 +83,34 @@ Build a player (extra flags via `additional-args`):
 - uses: VeyronSakai/actions/unity/product-name@<ref>
   id: product-name
 ```
+
+### Firebase CLI
+
+`firebase/setup-cli` downloads the standalone Firebase CLI (no Node required), caches it under
+`RUNNER_TOOL_CACHE` and adds it to `PATH`, so later steps can just call `firebase`. Use it when a job needs
+the CLI for something other than distribution — registering apps, enabling Firebase on a project, and so on.
+`firebase/distribute-app` already does this internally, so a job that only distributes does not need it.
+
+Nothing is installed globally, which matters on self-hosted runners: `npm install -g firebase-tools` would
+mutate the machine's Node installation, while this leaves only a versioned directory in the tool cache.
+
+```yaml
+steps:
+  - uses: VeyronSakai/actions/firebase/setup-cli@<ref>
+    with:
+      firebase-tools-version: v15.27.0
+  - shell: pwsh
+    run: firebase apps:list --project my-project
+```
+
+The `firebase-path` output holds the absolute path to the executable, for callers that would rather not rely
+on `PATH`.
+
+Authentication is left to the caller. With Workload Identity Federation, run
+[`google-github-actions/auth`](https://github.com/google-github-actions/auth) first: the CLI picks up the
+Application Default Credentials it exports.
+
+The same `firebase-tools-version` caveats as below apply — pin it when a reproducible CLI version matters.
 
 ### Firebase App Distribution
 
