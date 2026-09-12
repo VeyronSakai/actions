@@ -8,7 +8,7 @@ This repository hosts reusable composite actions that are shared across multiple
 
 | Path | Description | Outputs |
 | --- | --- | --- |
-| `git/config` | Reads `.lfsconfig` from the calling repository with `gh api` and extracts the Git LFS endpoint URL. | `lfs-url` |
+| `git/config` | Reads `.lfsconfig` from the calling repository with `gh api` and extracts the Git LFS endpoint URL. | `lfs-url`, `lfs-endpoint` |
 | `git/checkout` | Runs `actions/checkout@v6` and can optionally read `.lfsconfig` to inject a custom Git LFS endpoint first. | `lfs-url` |
 | `unity/editor-version` | Reads `m_EditorVersion` from `ProjectSettings/ProjectVersion.txt`. | `unity-version` |
 | `unity/product-name` | Reads `productName` from `ProjectSettings/ProjectSettings.asset`. | `product-name` |
@@ -47,6 +47,25 @@ Enable `lfs: "true"` when the calling repository needs `actions/checkout` to res
     github-token: ${{ github.token }}
     lfs: "true"
 ```
+
+When the endpoint needs authentication, keep the credentials out of `.lfsconfig` and pass them as
+`lfs-username` / `lfs-password`. The action reads the bare URL from `.lfsconfig` and points Git LFS at
+it with the credentials attached, through the environment, so they never land in the worktree's
+`.git/config` — which on a self-hosted runner outlives the job.
+
+```yaml
+- uses: VeyronSakai/actions/git/checkout@<ref>
+  with:
+    github-token: ${{ github.token }}
+    lfs: "true"
+    lfs-username: ${{ secrets.LFS_USERNAME }}
+    lfs-password: ${{ secrets.LFS_PASSWORD }}
+```
+
+Both are optional and must be given together. Without them the URL in `.lfsconfig` is used as written, so a
+repository whose `.lfsconfig` already carries its credentials keeps working unchanged. `git/config` takes the
+same two inputs and exposes the assembled URL as `lfs-endpoint`, for jobs that run `git lfs` themselves
+instead of relying on `actions/checkout`.
 
 ### Unity actions
 

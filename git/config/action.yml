@@ -5,11 +5,20 @@ inputs:
   github-token:
     description: GitHub token for gh api
     required: true
+  lfs-username:
+    description: Username for the Git LFS endpoint. Give it together with lfs-password to build lfs-endpoint.
+    required: false
+  lfs-password:
+    description: Password for the Git LFS endpoint. Give it together with lfs-username.
+    required: false
 
 outputs:
   lfs-url:
     description: LFS endpoint URL from .lfsconfig
     value: ${{ steps.read-lfs-config.outputs.lfs-url }}
+  lfs-endpoint:
+    description: lfs-url with the credentials embedded when lfs-username and lfs-password are given, otherwise the same as lfs-url
+    value: ${{ steps.read-lfs-config.outputs.lfs-endpoint }}
 
 runs:
   using: composite
@@ -19,6 +28,8 @@ runs:
       shell: pwsh
       env:
         GH_TOKEN: ${{ inputs.github-token }}
+        LFS_USERNAME: ${{ inputs.lfs-username }}
+        LFS_PASSWORD: ${{ inputs.lfs-password }}
       run: |
         $content = gh api "repos/$env:GITHUB_REPOSITORY/contents/.lfsconfig?ref=$env:GITHUB_SHA" --jq .content
 
@@ -30,5 +41,30 @@ runs:
         if (-not $match.Success) {
           throw "lfs.url was not found in .lfsconfig."
         }
+        $lfsUrl = $match.Groups[1].Value
 
-        "lfs-url=$($match.Groups[1].Value)" >> $env:GITHUB_OUTPUT
+        # Without credentials the endpoint is the URL as written, which is what an endpoint that needs no
+        # authentication (or carries its own credentials in .lfsconfig) expects.
+        $endpoint = $lfsUrl
+
+        if ($env:LFS_USERNAME -or $env:LFS_PASSWORD) {
+          if (-not ($env:LFS_USERNAME -and $env:LFS_PASSWORD)) {
+            throw "lfs-username and lfs-password must be given together."
+          }
+
+          $uri = [uri]$lfsUrl
+          if ($uri.UserInfo) {
+            throw "lfs.url in .lfsconfig already carries credentials. Remove them from .lfsconfig before passing lfs-username and lfs-password."
+          }
+
+          # Percent-encode so that a credential containing : / @ or # cannot break the URL apart.
+          $userInfo = "{0}:{1}" -f [uri]::EscapeDataString($env:LFS_USERNAME), [uri]::EscapeDataString($env:LFS_PASSWORD)
+          $endpoint = "{0}://{1}@{2}{3}" -f $uri.Scheme, $userInfo, $uri.Authority, $uri.PathAndQuery
+
+          # Percent-encoding can make the credential differ from the registered secret, which is matched
+          # literally, so mask the assembled URL as well.
+          Write-Output "::add-mask::$endpoint"
+        }
+
+        "lfs-url=$lfsUrl" >> $env:GITHUB_OUTPUT
+        "lfs-endpoint=$endpoint" >> $env:GITHUB_OUTPUT

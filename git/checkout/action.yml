@@ -9,6 +9,12 @@ inputs:
     description: Whether to enable Git LFS and resolve a custom endpoint from .lfsconfig
     required: false
     default: "false"
+  lfs-username:
+    description: Username for the custom Git LFS endpoint. Give it together with lfs-password when the endpoint needs authentication and .lfsconfig holds no credentials.
+    required: false
+  lfs-password:
+    description: Password for the custom Git LFS endpoint. Give it together with lfs-username.
+    required: false
   clean:
     description: Whether to use actions/checkout clean before creating or resetting the repository
     required: false
@@ -36,6 +42,8 @@ runs:
       shell: pwsh
       env:
         GH_TOKEN: ${{ inputs.github-token }}
+        LFS_USERNAME: ${{ inputs.lfs-username }}
+        LFS_PASSWORD: ${{ inputs.lfs-password }}
       run: |
         if (-not $env:GH_TOKEN) {
           throw "github-token is required when lfs is true."
@@ -51,18 +59,47 @@ runs:
         if (-not $match.Success) {
           throw "lfs.url was not found in .lfsconfig."
         }
+        $lfsUrl = $match.Groups[1].Value
 
-        "lfs-url=$($match.Groups[1].Value)" >> $env:GITHUB_OUTPUT
+        # Without credentials the endpoint is the URL as written, which is what an endpoint that needs no
+        # authentication (or carries its own credentials in .lfsconfig) expects.
+        $endpoint = $lfsUrl
+
+        if ($env:LFS_USERNAME -or $env:LFS_PASSWORD) {
+          if (-not ($env:LFS_USERNAME -and $env:LFS_PASSWORD)) {
+            throw "lfs-username and lfs-password must be given together."
+          }
+
+          $uri = [uri]$lfsUrl
+          if ($uri.UserInfo) {
+            throw "lfs.url in .lfsconfig already carries credentials. Remove them from .lfsconfig before passing lfs-username and lfs-password."
+          }
+
+          # Percent-encode so that a credential containing : / @ or # cannot break the URL apart.
+          $userInfo = "{0}:{1}" -f [uri]::EscapeDataString($env:LFS_USERNAME), [uri]::EscapeDataString($env:LFS_PASSWORD)
+          $endpoint = "{0}://{1}@{2}{3}" -f $uri.Scheme, $userInfo, $uri.Authority, $uri.PathAndQuery
+
+          # Percent-encoding can make the credential differ from the registered secret, which is matched
+          # literally, so mask the assembled URL as well.
+          Write-Output "::add-mask::$endpoint"
+        }
+
+        # lfs-url is the URL as written in .lfsconfig, so that callers can surface it without leaking the
+        # credentials; lfs-endpoint is what the checkout below points Git LFS at.
+        "lfs-url=$lfsUrl" >> $env:GITHUB_OUTPUT
+        "lfs-endpoint=$endpoint" >> $env:GITHUB_OUTPUT
 
     - name: Checkout with LFS
       if: ${{ inputs.lfs == 'true' }}
       uses: actions/checkout@v6
       env:
+        # Passed through the environment rather than `git config`, so the credentials never reach
+        # the worktree's .git/config, which outlives the job on a self-hosted runner.
         GIT_CONFIG_COUNT: 2
         GIT_CONFIG_KEY_0: lfs.url
-        GIT_CONFIG_VALUE_0: ${{ steps.read-lfs-config.outputs.lfs-url }}
+        GIT_CONFIG_VALUE_0: ${{ steps.read-lfs-config.outputs.lfs-endpoint }}
         GIT_CONFIG_KEY_1: remote.origin.lfsurl
-        GIT_CONFIG_VALUE_1: ${{ steps.read-lfs-config.outputs.lfs-url }}
+        GIT_CONFIG_VALUE_1: ${{ steps.read-lfs-config.outputs.lfs-endpoint }}
       with:
         clean: ${{ inputs.clean }}
         lfs: true
