@@ -39,7 +39,9 @@ Throughout this README, `@<ref>` stands for such a tag (or a commit SHA when you
 
 `git/checkout` always runs `git clean -df` and `git reset --hard HEAD` after checkout. `clean` is also passed through to `actions/checkout` itself.
 
-Enable `lfs: "true"` when the calling repository needs `actions/checkout` to respect a custom Git LFS endpoint from `.lfsconfig`. In that case, also pass `github-token`.
+Enable `lfs: "true"` when the calling repository needs `actions/checkout` to respect a custom Git LFS endpoint from `.lfsconfig`. Pass `github-token` as well if the job's own `GITHUB_TOKEN` cannot read the repository contents.
+
+A repository without `.lfsconfig` is fine: `lfs: "true"` then behaves like `actions/checkout` with `lfs: true`, fetching from the repository's default (GitHub-hosted) LFS endpoint. Only a missing file is treated this way — a token or network error still fails the step, rather than quietly falling back to the wrong endpoint.
 
 ```yaml
 - uses: VeyronSakai/actions/git/checkout@<ref>
@@ -65,7 +67,8 @@ it with the credentials attached, through the environment, so they never land in
 Both are optional and must be given together. Without them the URL in `.lfsconfig` is used as written, so a
 repository whose `.lfsconfig` already carries its credentials keeps working unchanged. `git/config` takes the
 same two inputs and exposes the assembled URL as `lfs-endpoint`, for jobs that run `git lfs` themselves
-instead of relying on `actions/checkout`.
+instead of relying on `actions/checkout`; both of its outputs are empty when the repository has no
+`.lfsconfig`.
 
 ### Unity actions
 

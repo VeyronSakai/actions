@@ -31,7 +31,28 @@ runs:
         LFS_USERNAME: ${{ inputs.lfs-username }}
         LFS_PASSWORD: ${{ inputs.lfs-password }}
       run: |
-        $content = gh api "repos/$env:GITHUB_REPOSITORY/contents/.lfsconfig?ref=$env:GITHUB_SHA" --jq .content
+        # gh exits non-zero when .lfsconfig is absent. That is not a failure: such a repository simply uses
+        # the default, GitHub-hosted LFS endpoint, so report empty outputs and let the caller carry on.
+        $PSNativeCommandUseErrorActionPreference = $false
+        $errorFile = (New-TemporaryFile).FullName
+        $content = gh api "repos/$env:GITHUB_REPOSITORY/contents/.lfsconfig?ref=$env:GITHUB_SHA" --jq .content 2> $errorFile
+        $exitCode = $LASTEXITCODE
+        $global:LASTEXITCODE = 0
+        $stderr = (Get-Content -LiteralPath $errorFile -Raw) ?? ""
+        Remove-Item -LiteralPath $errorFile -Force
+
+        if ($exitCode -ne 0) {
+          # Only a missing file means "no custom endpoint". A revoked token, a rate limit or a network error
+          # must not be mistaken for it, or the job would silently fetch from the wrong endpoint.
+          if ($stderr -notmatch '\(HTTP 404\)') {
+            throw "Failed to read .lfsconfig: $stderr"
+          }
+
+          Write-Output "::notice::.lfsconfig was not found. Using the repository's default Git LFS endpoint."
+          "lfs-url=" >> $env:GITHUB_OUTPUT
+          "lfs-endpoint=" >> $env:GITHUB_OUTPUT
+          exit 0
+        }
 
         # GitHub's Contents API may wrap base64 content with line breaks, so strip all whitespace before decoding.
         $lfsConfig = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(($content -replace '\s', '')))
