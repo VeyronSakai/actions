@@ -3,12 +3,12 @@ description: Run actions/checkout with optional custom Git LFS endpoint resoluti
 
 inputs:
   github-token:
-    description: GitHub token for gh api and actions/checkout. Required when lfs is true.
+    description: GitHub token for gh api and actions/checkout. Required unless lfs is false.
     required: false
   lfs:
-    description: Whether to enable Git LFS and resolve a custom endpoint from .lfsconfig
+    description: Whether to enable Git LFS and resolve a custom endpoint from .lfsconfig. Set to false for a repository without .lfsconfig.
     required: false
-    default: "false"
+    default: "true"
   clean:
     description: Whether to use actions/checkout clean before creating or resetting the repository
     required: false
@@ -84,4 +84,12 @@ runs:
       shell: pwsh
       run: |
         git clean -ffd
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         git reset --hard HEAD
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+        # git clean does not descend into submodules, so clean every checked-out submodule as well.
+        # Tracked changes inside them need no reset here: when submodules is enabled, actions/checkout updates
+        # them with `git submodule update --force`, which runs `git checkout -f` in each one and discards them.
+        git submodule foreach --recursive git clean -ffd
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

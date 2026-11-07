@@ -9,7 +9,7 @@ This repository hosts reusable composite actions that are shared across multiple
 | Path | Description | Outputs |
 | --- | --- | --- |
 | `git/config` | Reads `.lfsconfig` from the calling repository with `gh api` and extracts the Git LFS endpoint URL. | `lfs-url` |
-| `git/checkout` | Runs `actions/checkout@v6` and can optionally read `.lfsconfig` to inject a custom Git LFS endpoint first. | `lfs-url` |
+| `git/checkout` | Runs `actions/checkout@v6`, reading `.lfsconfig` first to inject a custom Git LFS endpoint (on by default), and cleans the workspace and its submodules afterwards. | `lfs-url` |
 | `unity/editor-version` | Reads `m_EditorVersion` from `ProjectSettings/ProjectVersion.txt`. | `unity-version` |
 | `unity/product-name` | Reads `productName` from `ProjectSettings/ProjectSettings.asset`. | `product-name` |
 | `unity/batch-mode` | Runs the Unity editor CLI in batch mode, resolving the editor path from the project's editor version. | `unity-version`, `log-path` |
@@ -34,19 +34,18 @@ Throughout this README, `@<ref>` stands for such a tag (or a commit SHA when you
 ```yaml
 - uses: VeyronSakai/actions/git/checkout@<ref>
   with:
-    lfs: "false"
+    github-token: ${{ github.token }}
 ```
 
-`git/checkout` always runs `git clean -df` and `git reset --hard HEAD` after checkout. `clean` is also passed through to `actions/checkout` itself.
-
-Enable `lfs: "true"` when the calling repository needs `actions/checkout` to respect a custom Git LFS endpoint from `.lfsconfig`. In that case, also pass `github-token`.
+`lfs` defaults to `"true"`: the action reads `.lfsconfig` from the calling repository with `gh api` and points `actions/checkout` at the custom Git LFS endpoint written there, so `github-token` is required. A repository without `.lfsconfig` must opt out with `lfs: "false"`, in which case `github-token` is optional.
 
 ```yaml
 - uses: VeyronSakai/actions/git/checkout@<ref>
   with:
-    github-token: ${{ github.token }}
-    lfs: "true"
+    lfs: "false"
 ```
+
+`git/checkout` always runs `git clean -ffd` and `git reset --hard HEAD` after checkout, and `git clean -ffd` inside every checked-out submodule too, since `git clean` does not descend into submodules. Ignored files, such as Unity's `Library`, are kept. Tracked changes inside submodules need no reset of their own: when `submodules` is enabled, `actions/checkout` updates them with `git submodule update --force`, which already discards them. `clean` is also passed through to `actions/checkout` itself.
 
 ### Unity actions
 
